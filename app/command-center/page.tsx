@@ -230,9 +230,18 @@ export default function LaptopCommandCenter() {
 
         {/* Action Controls & Arm Button */}
         <div className="flex items-center gap-3">
+          <a
+            href="/"
+            title="Switch to Mobile Sentinel Client"
+            className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface-container hover:bg-surface-container-high border border-white/10 text-xs font-mono text-on-surface-variant hover:text-white transition-all active:scale-95"
+          >
+            <Smartphone className="w-3.5 h-3.5 text-secondary" />
+            <span>📱 Mobile Client</span>
+          </a>
+
           <div className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-surface-container border border-white/5 font-mono text-xs text-on-surface-variant">
             <RefreshCw className="w-3.5 h-3.5 text-secondary animate-spin" />
-            <span className="hidden md:inline">Sync Active: {lastPollTime || 'Polling...'}</span>
+            <span className="hidden md:inline">Sync: {lastPollTime || '1000ms'}</span>
           </div>
 
           <button

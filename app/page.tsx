@@ -367,12 +367,11 @@ export default function MobilePhoneClient() {
           {/* Link to open Laptop Command Center */}
           <Link
             href="/command-center"
-            target="_blank"
             title="Open Guardian Command Center"
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface-container hover:bg-surface-container-high border border-secondary/30 text-xs font-mono text-secondary"
+            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 text-xs font-mono text-emerald-400 font-bold shadow-[0_0_15px_rgba(78,222,163,0.3)] transition-all active:scale-95"
           >
-            <Monitor className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Command Center</span>
+            <Monitor className="w-4 h-4 text-emerald-400" />
+            <span>💻 Laptop Command Center</span>
           </Link>
 
           {/* Camouflage Toggle */}
