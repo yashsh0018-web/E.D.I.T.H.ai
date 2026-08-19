@@ -364,6 +364,19 @@ export default function MobilePhoneClient() {
         </div>
 
         <div className="flex items-center gap-2">
+          {/* Copy / Share Dual-Device Links */}
+          <button
+            onClick={() => {
+              const base = typeof window !== 'undefined' ? window.location.origin : 'https://e-d-i-t-h-ai.vercel.app';
+              navigator.clipboard?.writeText(`${base}/command-center`);
+              alert(`Copied Guardian Laptop Link to clipboard:\n${base}/command-center`);
+            }}
+            title="Copy Laptop Guardian Command Center Link"
+            className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface-container hover:bg-surface-container-high border border-white/10 text-xs font-mono text-on-surface-variant hover:text-white transition-all active:scale-95"
+          >
+            <span>🔗 Copy Guardian Link</span>
+          </button>
+
           {/* Link to open Laptop Command Center */}
           <Link
             href="/command-center"

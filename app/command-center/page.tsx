@@ -230,13 +230,24 @@ export default function LaptopCommandCenter() {
 
         {/* Action Controls & Arm Button */}
         <div className="flex items-center gap-3">
+          <button
+            onClick={() => {
+              const base = typeof window !== 'undefined' ? window.location.origin : 'https://e-d-i-t-h-ai.vercel.app';
+              navigator.clipboard?.writeText(`${base}/`);
+              alert(`Copied Mobile Victim Link to clipboard:\n${base}/`);
+            }}
+            title="Copy Mobile Victim Link to open on smartphone"
+            className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface-container hover:bg-surface-container-high border border-white/10 text-xs font-mono text-secondary hover:text-white transition-all active:scale-95"
+          >
+            <span>📱 Copy Mobile Link</span>
+          </button>
+
           <a
             href="/"
             title="Switch to Mobile Sentinel Client"
-            className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface-container hover:bg-surface-container-high border border-white/10 text-xs font-mono text-on-surface-variant hover:text-white transition-all active:scale-95"
+            className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface-container hover:bg-surface-container-high border border-white/10 text-xs font-mono text-on-surface-variant hover:text-white transition-all active:scale-95"
           >
-            <Smartphone className="w-3.5 h-3.5 text-secondary" />
-            <span>📱 Mobile Client</span>
+            <span>View Mobile Client</span>
           </a>
 
           <div className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-surface-container border border-white/5 font-mono text-xs text-on-surface-variant">
