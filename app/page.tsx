@@ -12,7 +12,6 @@ import {
   AlertTriangle,
   Radio,
   EyeOff,
-  Send,
   Sparkles,
   Play,
   RotateCcw,
@@ -20,11 +19,14 @@ import {
   Users,
   FolderArchive,
   Monitor,
+  ExternalLink,
+  Send,
+  Volume2,
 } from 'lucide-react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { LOCAL_HOTWORDS } from '@/lib/speechRecognition';
-import { buildWhatsAppSOSLink, formatCoordinates, soundEffects } from '@/lib/utils';
+import { formatCoordinates, soundEffects, buildWhatsAppSOSLink } from '@/lib/utils';
 import CamouflageScreen from '@/components/CamouflageScreen';
 import EvidenceVault from '@/components/EvidenceVault';
 import ContactsManager from '@/components/ContactsManager';
@@ -41,15 +43,12 @@ export default function MobilePhoneClient() {
     setActiveTab,
     camouflageMode,
     toggleCamouflage,
-    isSOSModalOpen,
-    setIsSOSModalOpen,
-    lastTriggerReason,
     triggerEmergency: contextTriggerEmergency,
     resolveEmergency: contextResolveEmergency,
     dispatchWhatsAppSOS,
   } = useSafety();
 
-  // Hardware Permissions & State
+  // Hardware State
   const [shieldActive, setShieldActive] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [cameraReady, setCameraReady] = useState(false);
@@ -62,43 +61,44 @@ export default function MobilePhoneClient() {
   const [lastDispatchedTime, setLastDispatchedTime] = useState<string | null>(null);
   const [transcript, setTranscript] = useState('');
   const [interimTranscript, setInterimTranscript] = useState('');
-  const [audioLevel, setAudioLevel] = useState(0);
+  const [statusMessage, setStatusMessage] = useState<string>('Ready. Click Activate Shield to begin.');
 
-  // Hidden hardware capture refs
+  // Hidden Hardware Capture Refs
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const speechRecognitionRef = useRef<unknown>(null);
-  const audioContextRef = useRef<AudioContext | null>(null);
   const isTriggeringRef = useRef<boolean>(false);
+  const gpsWatchIdRef = useRef<number | null>(null);
 
   // 1. SILENT CAMERA CAPTURE FUNCTION
   const captureSilentFrame = useCallback(async (): Promise<string | undefined> => {
     try {
+      // Primary: Grab from active running video stream track
       if (videoRef.current && videoRef.current.readyState >= 2 && canvasRef.current) {
         const video = videoRef.current;
         const canvas = canvasRef.current;
-        canvas.width = video.videoWidth || 640;
-        canvas.height = video.videoHeight || 480;
+        canvas.width = Math.min(video.videoWidth || 640, 640);
+        canvas.height = Math.min(video.videoHeight || 480, 480);
         const ctx = canvas.getContext('2d');
         if (ctx) {
           ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-          // Forensic watermark
+          // Forensic watermark banner
           ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
           ctx.fillRect(0, canvas.height - 24, canvas.width, 24);
           ctx.font = '11px monospace';
           ctx.fillStyle = '#4edea3';
-          ctx.fillText(`AURA GUARD COVERT CAPTURE — ${new Date().toISOString()}`, 8, canvas.height - 8);
-          const dataUrl = canvas.toDataURL('image/jpeg', 0.6);
+          ctx.fillText(`E.D.I.T.H. COVERT CAPTURE • ${new Date().toLocaleTimeString()}`, 8, canvas.height - 8);
+          const dataUrl = canvas.toDataURL('image/jpeg', 0.5);
           setLatestSnapshot(dataUrl);
           return dataUrl;
         }
       }
 
-      // Fallback: If camera stream not ready, attempt immediate single-frame stream
+      // Fallback: If camera stream is in warmup, request single quick frame
       if (navigator.mediaDevices?.getUserMedia) {
         const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } },
+          video: { facingMode: 'user', width: { ideal: 480 }, height: { ideal: 360 } },
           audio: false,
         });
         const tempVideo = document.createElement('video');
@@ -106,17 +106,17 @@ export default function MobilePhoneClient() {
         tempVideo.muted = true;
         tempVideo.playsInline = true;
         await tempVideo.play();
-        await new Promise((res) => setTimeout(res, 200));
+        await new Promise((res) => setTimeout(res, 250));
 
         const canvas = document.createElement('canvas');
-        canvas.width = tempVideo.videoWidth || 640;
-        canvas.height = tempVideo.videoHeight || 480;
+        canvas.width = tempVideo.videoWidth || 480;
+        canvas.height = tempVideo.videoHeight || 360;
         const ctx = canvas.getContext('2d');
         if (ctx) {
           ctx.drawImage(tempVideo, 0, 0, canvas.width, canvas.height);
         }
         stream.getTracks().forEach((t) => t.stop());
-        const dataUrl = canvas.toDataURL('image/jpeg', 0.6);
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.5);
         setLatestSnapshot(dataUrl);
         return dataUrl;
       }
@@ -128,46 +128,50 @@ export default function MobilePhoneClient() {
 
   // 2. DISPATCH EMERGENCY PAYLOAD TO SERVER (/api/emergency)
   const dispatchAlertToBridge = useCallback(
-    async (reason: string, customTranscript?: string, photoData?: string) => {
+    async (reason: string, customTranscript?: string) => {
       if (isTriggeringRef.current) return;
       isTriggeringRef.current = true;
 
       try {
-        const finalPhoto = photoData || (await captureSilentFrame());
-        const timestampStr = new Date().toLocaleTimeString();
-        setLastDispatchedTime(timestampStr);
+        const timeStr = new Date().toLocaleTimeString();
+        setLastDispatchedTime(timeStr);
+        setStatusMessage(`🚨 Alert Broadcasted to Command Center at ${timeStr}`);
         soundEffects.playSiren();
         contextTriggerEmergency(reason);
+
+        // Capture snapshot frame
+        const photoData = await captureSilentFrame();
 
         const payload = {
           threat: true,
           riskScore: 95,
           reason,
-          photoBase64: finalPhoto,
+          photoBase64: photoData,
           coordinates: {
             lat: currentCoords.lat,
             lng: currentCoords.lng,
             mapsUrl: `https://maps.google.com/?q=${currentCoords.lat},${currentCoords.lng}`,
           },
           transcript: customTranscript || transcript || interimTranscript,
-          timestamp: timestampStr,
+          timestamp: timeStr,
           clientInfo: {
-            device: typeof window !== 'undefined' && window.navigator.userAgent.includes('iPhone') ? 'iPhone • Mobile Node' : 'Android • Mobile Sentinel',
+            device: typeof window !== 'undefined' && window.navigator.userAgent.includes('iPhone') ? 'iPhone • Mobile Sentinel' : 'Android • Mobile Sentinel',
           },
         };
 
+        // Post to Vercel emergency route
         await fetch('/api/emergency', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
         });
 
-        // Also broadcast to SSE stream
-        await fetch('/api/broadcast', {
+        // Also post to broadcast SSE route if active
+        fetch('/api/broadcast', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
-        });
+        }).catch(() => {});
       } catch (err) {
         console.warn('Emergency dispatch error:', err);
       } finally {
@@ -179,17 +183,18 @@ export default function MobilePhoneClient() {
     [captureSilentFrame, contextTriggerEmergency, currentCoords.lat, currentCoords.lng, interimTranscript, transcript]
   );
 
-  // 3. START SAFETY SHIELD (One-Click Permissions)
-  const handleStartSafetyShield = async () => {
+  // 3. ONE-CLICK SHIELD INITIALIZATION (Microphone, Camera, GPS)
+  const handleActivateShield = async () => {
     try {
       soundEffects.playSafeArmed();
+      setStatusMessage('Initializing sensors: Camera, Mic, and GPS...');
 
-      // A. Camera Initialization
+      // A. Camera Video Stream Setup
       if (navigator.mediaDevices?.getUserMedia) {
         try {
           const stream = await navigator.mediaDevices.getUserMedia({
             video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } },
-            audio: true,
+            audio: false,
           });
           mediaStreamRef.current = stream;
           if (videoRef.current) {
@@ -197,26 +202,36 @@ export default function MobilePhoneClient() {
             videoRef.current.play().catch(() => {});
           }
           setCameraReady(true);
-        } catch {
-          console.warn('Camera permission dismissed');
+        } catch (camErr) {
+          console.warn('Camera stream permission warning:', camErr);
         }
       }
 
-      // B. GPS Telemetry Initialization
+      // B. GPS Geolocation Watcher
       if (navigator.geolocation) {
+        // Immediate fix
         navigator.geolocation.getCurrentPosition(
           (pos) => {
             setCurrentCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
             setGpsReady(true);
           },
           () => {
-            setGpsReady(true); // Fallback coords
+            setGpsReady(true);
           },
+          { enableHighAccuracy: true, timeout: 5000 }
+        );
+
+        // Continuous watcher
+        gpsWatchIdRef.current = navigator.geolocation.watchPosition(
+          (pos) => {
+            setCurrentCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+          },
+          () => {},
           { enableHighAccuracy: true }
         );
       }
 
-      // C. Speech Recognition Initialization
+      // C. Speech Recognition Setup
       interface ExtendedWindow extends Window {
         SpeechRecognition?: new () => {
           continuous: boolean;
@@ -235,6 +250,7 @@ export default function MobilePhoneClient() {
 
       const extWindow = window as unknown as ExtendedWindow;
       const SpeechRecognition = extWindow.SpeechRecognition || extWindow.webkitSpeechRecognition;
+
       if (SpeechRecognition) {
         const recognition = new SpeechRecognition();
         speechRecognitionRef.current = recognition;
@@ -285,13 +301,14 @@ export default function MobilePhoneClient() {
       }
 
       setShieldActive(true);
-    } catch (e) {
-      console.warn('Error starting safety shield:', e);
+      setStatusMessage('Shield ACTIVE • Ambient voice monitoring running.');
+    } catch (err) {
+      console.warn('Shield activation warning:', err);
       setShieldActive(true);
     }
   };
 
-  // Check voice transcript for hotwords
+  // Check voice transcript for distress keywords
   const checkVoiceTriggers = useCallback(
     (text: string) => {
       const lower = text.toLowerCase();
@@ -305,11 +322,14 @@ export default function MobilePhoneClient() {
     [dispatchAlertToBridge]
   );
 
-  // Cleanup
+  // Cleanup on unmount
   useEffect(() => {
     return () => {
       if (mediaStreamRef.current) {
         mediaStreamRef.current.getTracks().forEach((t) => t.stop());
+      }
+      if (gpsWatchIdRef.current !== null && navigator.geolocation) {
+        navigator.geolocation.clearWatch(gpsWatchIdRef.current);
       }
       if (speechRecognitionRef.current) {
         try {
@@ -322,14 +342,13 @@ export default function MobilePhoneClient() {
   const { latStr, lngStr } = formatCoordinates(currentCoords.lat, currentCoords.lng);
   const isAlert = threatLevel === 'CRITICAL';
 
-  // If Camouflage Mode is active, render stealth disguise screen
   if (camouflageMode) {
     return <CamouflageScreen />;
   }
 
   return (
     <div className="min-h-screen bg-[#0e0e10] text-[#e5e1e4] flex flex-col font-sans select-none data-grid">
-      {/* Hidden Hardware Capture Canvas & Video */}
+      {/* Hidden Hardware Capture Video & Canvas */}
       <video ref={videoRef} className="hidden" playsInline muted autoPlay />
       <canvas ref={canvasRef} className="hidden" />
 
@@ -359,32 +378,20 @@ export default function MobilePhoneClient() {
               </span>
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
             </div>
-            <span className="font-mono text-[10px] text-on-surface-variant/70">MOBILE CLIENT NODE</span>
+            <span className="font-mono text-[10px] text-on-surface-variant/70">MOBILE VICTIM CLIENT</span>
           </div>
         </div>
 
         <div className="flex items-center gap-2">
-          {/* Copy / Share Dual-Device Links */}
-          <button
-            onClick={() => {
-              const base = typeof window !== 'undefined' ? window.location.origin : 'https://e-d-i-t-h-ai.vercel.app';
-              navigator.clipboard?.writeText(`${base}/command-center`);
-              alert(`Copied Guardian Laptop Link to clipboard:\n${base}/command-center`);
-            }}
-            title="Copy Laptop Guardian Command Center Link"
-            className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface-container hover:bg-surface-container-high border border-white/10 text-xs font-mono text-on-surface-variant hover:text-white transition-all active:scale-95"
-          >
-            <span>🔗 Copy Guardian Link</span>
-          </button>
-
-          {/* Link to open Laptop Command Center */}
+          {/* Direct Switcher to Laptop Command Center */}
           <Link
             href="/command-center"
-            title="Open Guardian Command Center"
-            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 text-xs font-mono text-emerald-400 font-bold shadow-[0_0_15px_rgba(78,222,163,0.3)] transition-all active:scale-95"
+            title="Open Guardian Command Center for Laptop"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 text-xs font-mono text-emerald-400 font-bold shadow-[0_0_15px_rgba(78,222,163,0.3)] transition-all active:scale-95"
           >
             <Monitor className="w-4 h-4 text-emerald-400" />
-            <span>💻 Laptop Command Center</span>
+            <span className="hidden sm:inline">💻 Laptop Command Center</span>
+            <span className="sm:hidden">Command Center</span>
           </Link>
 
           {/* Camouflage Toggle */}
@@ -398,11 +405,11 @@ export default function MobilePhoneClient() {
         </div>
       </header>
 
-      {/* Main View Router */}
+      {/* Main Container */}
       <main className="flex-1 w-full pt-20 pb-32 px-4 md:px-8 max-w-container-max mx-auto">
         {activeTab === 'dashboard' && (
           <div className="flex flex-col gap-5 animate-fadeIn">
-            {/* 1. START SAFETY SHIELD PERMISSION BANNER */}
+            {/* 1. ONE-CLICK ACTIVATE SHIELD BANNER */}
             {!shieldActive ? (
               <div className="glass-panel p-5 rounded-2xl border-2 border-secondary/40 flex flex-col sm:flex-row items-center justify-between gap-4 shadow-[0_0_25px_rgba(78,222,163,0.25)]">
                 <div className="flex items-center gap-3">
@@ -411,54 +418,50 @@ export default function MobilePhoneClient() {
                   </div>
                   <div>
                     <h2 className="font-mono text-sm sm:text-base font-bold text-on-surface">
-                      One-Click Sentinel Shield Initialization
+                      One-Click Sentinel Shield Activation
                     </h2>
                     <p className="font-mono text-xs text-on-surface-variant/80">
-                      Arm continuous microphone listener, covert camera frame pipeline, and GNSS telemetry.
+                      Grant Mic, Covert Camera, and Live GPS tracking in 1 tap.
                     </p>
                   </div>
                 </div>
 
                 <button
-                  onClick={handleStartSafetyShield}
-                  className="w-full sm:w-auto px-6 py-3 rounded-xl bg-secondary text-on-secondary-container font-mono text-xs font-black tracking-widest uppercase shadow-[0_0_20px_rgba(78,222,163,0.5)] hover:scale-105 active:scale-95 transition-all"
+                  onClick={handleActivateShield}
+                  className="w-full sm:w-auto px-6 py-3.5 rounded-xl bg-secondary text-on-secondary-container font-mono text-xs font-black tracking-widest uppercase shadow-[0_0_25px_rgba(78,222,163,0.5)] hover:scale-105 active:scale-95 transition-all"
                 >
-                  Start Safety Shield
+                  Activate Shield
                 </button>
               </div>
             ) : (
-              /* Hardware Status Badges Bar */
+              /* Active Sensor Status Bar */
               <div className="flex flex-wrap items-center justify-between gap-2 p-2.5 rounded-xl bg-surface-container-low border border-white/5 font-mono text-[11px]">
                 <div className="flex items-center gap-3">
                   <span className="flex items-center gap-1.5 text-secondary">
                     <Mic className="w-3.5 h-3.5" />
-                    <span>MIC: {isListening ? 'LISTENING' : 'STANDBY'}</span>
+                    <span>MIC: {isListening ? 'LISTENING' : 'ARMED'}</span>
                   </span>
                   <span className="flex items-center gap-1.5 text-on-surface-variant">
                     <Camera className="w-3.5 h-3.5 text-secondary" />
-                    <span>CAM: {cameraReady ? 'ARMED (Covert)' : 'READY'}</span>
+                    <span>CAM: {cameraReady ? 'STANDBY (Covert)' : 'READY'}</span>
                   </span>
                   <span className="flex items-center gap-1.5 text-on-surface-variant">
                     <Navigation className="w-3.5 h-3.5 text-secondary" />
-                    <span>GPS: {gpsReady ? 'LOCKED' : 'INITIALIZING'}</span>
+                    <span>GPS: {gpsReady ? 'LOCKED' : 'TRACKING'}</span>
                   </span>
                 </div>
 
-                {lastDispatchedTime && (
-                  <span className="text-secondary bg-secondary/10 px-2 py-0.5 rounded border border-secondary/30 text-[10px] animate-pulse">
-                    🚨 Alert Dispatched at {lastDispatchedTime}
-                  </span>
-                )}
+                <span className="text-secondary text-[10px]">{statusMessage}</span>
               </div>
             )}
 
-            {/* 2. ALERT DISPATCHED BANNER (when active) */}
+            {/* 2. LIVE DISTRESS ALERT BROADCASTED BANNER */}
             {isAlert && (
               <div className="p-4 rounded-2xl bg-red-600/20 border-2 border-red-500 text-red-400 font-mono text-xs flex flex-col sm:flex-row items-center justify-between gap-3 shadow-[0_0_25px_rgba(220,38,38,0.5)] animate-pulse">
                 <div className="flex items-center gap-3">
                   <ShieldAlert className="w-6 h-6 animate-bounce flex-shrink-0" />
                   <div>
-                    <p className="font-bold text-sm">ALERT BROADCASTED TO GUARDIAN COMMAND CENTER</p>
+                    <p className="font-bold text-sm">🚨 ALERT BROADCASTED TO LAPTOP COMMAND CENTER</p>
                     <p className="text-[11px] text-on-surface-variant mt-0.5">
                       Laptop siren sounding • Live GPS pin: {latStr}, {lngStr}
                     </p>
@@ -468,9 +471,10 @@ export default function MobilePhoneClient() {
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => dispatchWhatsAppSOS()}
-                    className="px-4 py-2 rounded-xl bg-emerald-600 text-white font-bold text-xs hover:bg-emerald-500 transition-colors shadow-md"
+                    className="px-4 py-2 rounded-xl bg-emerald-600 text-white font-bold text-xs hover:bg-emerald-500 transition-colors shadow-md flex items-center gap-1.5"
                   >
-                    Open WhatsApp SOS
+                    <Send className="w-3.5 h-3.5" />
+                    <span>WhatsApp SOS</span>
                   </button>
                   <button
                     onClick={contextResolveEmergency}
@@ -485,9 +489,9 @@ export default function MobilePhoneClient() {
             {/* 3. 3D VISUALIZER ORB */}
             <PulseVisualizer />
 
-            {/* 4. TELEMETRY & THREAT GRID */}
+            {/* 4. TELEMETRY & THREAT METER GRID */}
             <section className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {/* Threat Gauge */}
+              {/* Threat Level Meter */}
               <div className="glass-panel p-4 rounded-xl flex flex-col justify-between gap-3">
                 <div className="flex justify-between items-center font-mono text-xs">
                   <span className="text-on-surface-variant uppercase font-semibold flex items-center gap-1.5">
@@ -544,7 +548,7 @@ export default function MobilePhoneClient() {
               </div>
             </section>
 
-            {/* 5. LIVE ACOUSTIC TRANSCRIPT & HACKATHON DEMO INJECTION BUTTONS */}
+            {/* 5. LIVE ACOUSTIC TRANSCRIPT & INSTANT DEMO TRIGGERS */}
             <div className="glass-panel p-4 rounded-xl flex flex-col gap-3">
               <div className="flex justify-between items-center font-mono text-xs">
                 <span className="text-on-surface-variant font-semibold">Live Speech Listener Transcript</span>
@@ -558,7 +562,7 @@ export default function MobilePhoneClient() {
                   <span className="text-secondary font-medium">{interimTranscript || transcript.slice(-150)}</span>
                 ) : (
                   <span className="text-on-surface-variant/50 italic">
-                    {shieldActive ? 'Listening to ambient voice...' : 'Click "Start Safety Shield" above to arm microphone.'}
+                    {shieldActive ? 'Listening to ambient voice...' : 'Click "Activate Shield" above to arm microphone.'}
                   </span>
                 )}
               </div>
@@ -582,7 +586,7 @@ export default function MobilePhoneClient() {
                     <Play className="w-3 h-3 text-red-400" /> &quot;Bachao!&quot;
                   </button>
                   <button
-                    onClick={() => dispatchAlertToBridge('EDITH code red emergency protocol', 'EDITH code red')}
+                    onClick={() => dispatchAlertToBridge('EDITH code red emergency protocol alpha', 'EDITH code red')}
                     className="px-3 py-1.5 rounded-lg bg-surface-container hover:bg-surface-container-high border border-white/10 text-xs font-mono text-amber-300 hover:text-white transition-all active:scale-95 flex items-center gap-1"
                   >
                     <Play className="w-3 h-3 text-amber-300" /> &quot;Code Red&quot;

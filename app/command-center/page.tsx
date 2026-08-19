@@ -27,7 +27,6 @@ export default function LaptopCommandCenter() {
   const [isArmed, setIsArmed] = useState(false);
   const [isSirenPlaying, setIsSirenPlaying] = useState(false);
   const [latestAlert, setLatestAlert] = useState<EmergencyAlert | null>(null);
-  const [pollingActive, setPollingActive] = useState(true);
   const [lastPollTime, setLastPollTime] = useState<string>('');
   const [selectedPhotoModal, setSelectedPhotoModal] = useState<string | null>(null);
 
@@ -35,8 +34,8 @@ export default function LaptopCommandCenter() {
   const audioContextRef = useRef<AudioContext | null>(null);
   const lastAlertIdRef = useRef<string | null>(null);
 
-  // Synthesize loud emergency siren alarm using Web Audio API (sweeping 800Hz - 1200Hz)
-  const playSirenTone = useCallback(() => {
+  // Synthesize loud oscillating siren alarm using Web Audio API (sweeping 900Hz - 1250Hz)
+  const playSirenOscillator = useCallback(() => {
     try {
       if (!audioContextRef.current) {
         const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
@@ -50,18 +49,18 @@ export default function LaptopCommandCenter() {
       const gain = ctx.createGain();
 
       osc.type = 'sawtooth';
-      osc.frequency.setValueAtTime(800, ctx.currentTime);
-      osc.frequency.linearRampToValueAtTime(1250, ctx.currentTime + 0.35);
-      osc.frequency.linearRampToValueAtTime(800, ctx.currentTime + 0.7);
+      osc.frequency.setValueAtTime(900, ctx.currentTime);
+      osc.frequency.linearRampToValueAtTime(1250, ctx.currentTime + 0.3);
+      osc.frequency.linearRampToValueAtTime(900, ctx.currentTime + 0.6);
 
-      gain.gain.setValueAtTime(0.2, ctx.currentTime);
-      gain.gain.linearRampToValueAtTime(0.01, ctx.currentTime + 0.7);
+      gain.gain.setValueAtTime(0.25, ctx.currentTime);
+      gain.gain.linearRampToValueAtTime(0.01, ctx.currentTime + 0.6);
 
       osc.connect(gain);
       gain.connect(ctx.destination);
 
       osc.start();
-      osc.stop(ctx.currentTime + 0.7);
+      osc.stop(ctx.currentTime + 0.6);
     } catch (e) {
       console.warn('Siren tone error:', e);
     }
@@ -69,12 +68,12 @@ export default function LaptopCommandCenter() {
 
   const startContinuousSiren = useCallback(() => {
     setIsSirenPlaying(true);
-    playSirenTone();
+    playSirenOscillator();
     if (sirenIntervalRef.current) clearInterval(sirenIntervalRef.current);
     sirenIntervalRef.current = setInterval(() => {
-      playSirenTone();
-    }, 750);
-  }, [playSirenTone]);
+      playSirenOscillator();
+    }, 650);
+  }, [playSirenOscillator]);
 
   const stopSiren = useCallback(async () => {
     setIsSirenPlaying(false);
@@ -97,22 +96,23 @@ export default function LaptopCommandCenter() {
         audioContextRef.current = new AudioCtx();
         audioContextRef.current.resume();
       }
-      playSirenTone();
+      playSirenOscillator();
       setIsArmed(true);
     } catch {
       setIsArmed(true);
     }
   };
 
-  // Poll /api/emergency every 1000ms (1 second)
+  // Poll /api/emergency every 1000ms (1 second) with strict no-cache
   useEffect(() => {
-    if (!pollingActive) return;
-
     const pollTimer = setInterval(async () => {
       try {
         const res = await fetch(`/api/emergency?t=${Date.now()}`, {
           cache: 'no-store',
-          headers: { 'Cache-Control': 'no-cache' },
+          headers: {
+            'Cache-Control': 'no-cache, no-store, must-revalidate',
+            Pragma: 'no-cache',
+          },
         });
 
         if (res.ok) {
@@ -147,7 +147,7 @@ export default function LaptopCommandCenter() {
       clearInterval(pollTimer);
       if (sirenIntervalRef.current) clearInterval(sirenIntervalRef.current);
     };
-  }, [isArmed, latestAlert, pollingActive, startContinuousSiren]);
+  }, [isArmed, latestAlert, startContinuousSiren]);
 
   // Simulation Trigger for Judge Demo
   const triggerDemoAlert = async (phrase: string, reason: string) => {
@@ -155,7 +155,8 @@ export default function LaptopCommandCenter() {
       threat: true,
       riskScore: 95,
       reason,
-      photoBase64: 'https://lh3.googleusercontent.com/aida-public/AB6AXuAP-OtIzAVIWQK-vPe03oQmvb05Hym94_zgcqWY9nGfL_00_aGm3wxuJNfVmg40AV-LGWXkjofNeZd5lXXaza1sxIy35pDhVMq2OIidMgkOatkeC_g73peHHxPdRuVSJwKrG5WO8WOGTY7ZTSjGyncLSViuH7ymV1_j29tyj6WiNKMdLa1bf5irqLfYh-YlSUy6fUOk7c1wDGzR1uViV61RTCFVNn9RcmN6KLPNqjb2CQmWp1uhYLC5Jg',
+      photoBase64:
+        'https://lh3.googleusercontent.com/aida-public/AB6AXuAP-OtIzAVIWQK-vPe03oQmvb05Hym94_zgcqWY9nGfL_00_aGm3wxuJNfVmg40AV-LGWXkjofNeZd5lXXaza1sxIy35pDhVMq2OIidMgkOatkeC_g73peHHxPdRuVSJwKrG5WO8WOGTY7ZTSjGyncLSViuH7ymV1_j29tyj6WiNKMdLa1bf5irqLfYh-YlSUy6fUOk7c1wDGzR1uViV61RTCFVNn9RcmN6KLPNqjb2CQmWp1uhYLC5Jg',
       coordinates: {
         lat: 34.0522,
         lng: -118.2437,
@@ -163,7 +164,7 @@ export default function LaptopCommandCenter() {
       },
       transcript: phrase,
       timestamp: new Date().toLocaleTimeString(),
-      clientInfo: { device: 'iPhone 15 Pro • Mobile Node' },
+      clientInfo: { device: 'iPhone 15 Pro • Mobile Sentinel' },
     };
 
     await fetch('/api/emergency', {
@@ -216,7 +217,7 @@ export default function LaptopCommandCenter() {
           <div>
             <div className="flex items-center gap-2">
               <h1 className="font-mono text-sm sm:text-base font-bold tracking-wider text-on-surface">
-                AURA GUARD COMMAND CENTER
+                E.D.I.T.H. GUARDIAN COMMAND CENTER
               </h1>
               <span className="px-2 py-0.5 rounded bg-secondary/15 text-secondary border border-secondary/30 font-mono text-[10px] font-bold">
                 LAPTOP HUD
@@ -247,7 +248,8 @@ export default function LaptopCommandCenter() {
             title="Switch to Mobile Sentinel Client"
             className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface-container hover:bg-surface-container-high border border-white/10 text-xs font-mono text-on-surface-variant hover:text-white transition-all active:scale-95"
           >
-            <span>View Mobile Client</span>
+            <Smartphone className="w-3.5 h-3.5 text-secondary" />
+            <span>Mobile Client</span>
           </a>
 
           <div className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-surface-container border border-white/5 font-mono text-xs text-on-surface-variant">
@@ -256,7 +258,7 @@ export default function LaptopCommandCenter() {
           </div>
 
           <button
-            onClick={isArmed ? (isSirenPlaying ? stopSiren : playSirenTone) : handleArmSystem}
+            onClick={isArmed ? (isSirenPlaying ? stopSiren : playSirenOscillator) : handleArmSystem}
             className={`px-4 py-2 rounded-xl font-mono text-xs font-black tracking-wider uppercase flex items-center gap-2 transition-all active:scale-95 shadow-md ${
               isArmed
                 ? isSirenPlaying
@@ -318,7 +320,9 @@ export default function LaptopCommandCenter() {
 
               {/* Coordinates Pill */}
               <div className="absolute bottom-2 left-2 right-2 bg-black/85 backdrop-blur-sm p-2 rounded-lg border border-white/10 font-mono text-xs flex justify-between items-center text-on-surface">
-                <span>{latStr}, {lngStr}</span>
+                <span>
+                  {latStr}, {lngStr}
+                </span>
                 <a
                   href={`https://maps.google.com/?q=${activeLat},${activeLng}`}
                   target="_blank"
@@ -517,13 +521,7 @@ export default function LaptopCommandCenter() {
               </button>
             </div>
             <div className="relative aspect-video w-full rounded-xl overflow-hidden bg-black">
-              <Image
-                src={selectedPhotoModal}
-                alt="Enlarged snapshot"
-                fill
-                unoptimized
-                className="object-contain"
-              />
+              <Image src={selectedPhotoModal} alt="Enlarged snapshot" fill unoptimized className="object-contain" />
             </div>
           </div>
         </div>
